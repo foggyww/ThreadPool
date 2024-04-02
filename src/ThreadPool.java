@@ -7,19 +7,24 @@ public class ThreadPool {
     private final int maxThreadNum;
     private boolean isRun;
     private final Thread[] threads;
+    private int nowCoreThreadAliveNum;
     private final Object locked = new Object();
     private final Object[] lockedArray;
+    private int nowThreadNum;
+    private final Object creatLocked = new Object();
     Queue<Runnable> mQueue;
 
     public ThreadPool(int coreThreadNum, int maxThreadNum) {
         this.coreThreadNum = coreThreadNum;
         this.maxThreadNum = maxThreadNum;
-        isRun = false;
+        this.isRun = false;
         this.threads = new Thread[coreThreadNum];
-        mQueue = new ArrayDeque<>();
-        lockedArray = new Object[coreThreadNum];
+        this.mQueue = new ArrayDeque<>();
+        this.lockedArray = new Object[coreThreadNum];
+        this.nowThreadNum = coreThreadNum;
+        this.nowCoreThreadAliveNum = 0;
         for (int i = 0; i < coreThreadNum; i++) {
-            lockedArray[i] = new Object();
+            this.lockedArray[i] = new Object();
         }
     }
 
@@ -35,13 +40,45 @@ public class ThreadPool {
                     lockedArray[i].notify();
                 }
             }
+
         }
     }
+
+    private void createTempThread() {
+        new Thread(()->{
+            while (true){
+                Runnable nowWork;
+                synchronized (creatLocked){
+                    while (mQueue.isEmpty()||nowThreadNum>=maxThreadNum||nowCoreThreadAliveNum<coreThreadNum){
+                        try {
+                            creatLocked.wait();
+                        } catch (InterruptedException e) {
+                            throw new RuntimeException(e);
+                        }
+                    }
+                    synchronized (locked) {
+                        if (!mQueue.isEmpty()) {
+                            nowWork = mQueue.remove();
+                        } else {
+                            continue;
+                        }
+                    }
+                    new Thread(() -> {
+                        nowThreadNum++;
+                        nowWork.run();
+                        nowThreadNum--;
+                    }).start();
+                }
+            }
+        }).start();
+    }
+
     public void run() {
         if (isRun) {
             return;
         }
         isRun = true;
+        createTempThread();
         for (int i = 0; i < coreThreadNum; i++) {
             int finalI = i;
             threads[i] = new Thread(() -> {
@@ -58,12 +95,17 @@ public class ThreadPool {
                         synchronized (locked) {
                             if (!mQueue.isEmpty()) {
                                 nowWork = mQueue.remove();
-                            }else{
+                            } else {
                                 continue;
                             }
                         }
                     }
+                    nowCoreThreadAliveNum++;
+                    synchronized (creatLocked){
+                        creatLocked.notify();
+                    }
                     nowWork.run();
+                    nowCoreThreadAliveNum--;
                 }
             });
             threads[i].start();
