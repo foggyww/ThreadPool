@@ -63,8 +63,8 @@ public class ThreadPool {
                             continue;
                         }
                     }
+                    nowThreadNum++;
                     new Thread(() -> {
-                        nowThreadNum++;
                         nowWork.run();
                         nowThreadNum--;
                     }).start();
